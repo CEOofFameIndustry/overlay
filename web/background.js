@@ -1,16 +1,21 @@
-/* Only this selected Gemini conversation is ever read or modified. */
+/* Only the selected Gemini or Claude conversation is ever read or modified. */
 let port = null;
 let ready = false;
 let target = "";
 let message = "";
 let incoming = null;
 let active = null;
-function validChat(url) {
- try {const u=new URL(url);return u.origin==='https://gemini.google.com' && /^\/(?:u\/\d+\/)?app\/[a-zA-Z0-9_-]+$/.test(u.pathname);}catch{return false;}
+const HOSTS = ["https://gemini.google.com/*", "https://claude.ai/*"];
+function provider(url) {
+ try {const u=new URL(url);
+  if(u.origin==='https://gemini.google.com' && /^\/(?:u\/\d+\/)?app\/[a-zA-Z0-9_-]+$/.test(u.pathname)) return 'gemini';
+  if(u.origin==='https://claude.ai' && /^\/chat\/[a-zA-Z0-9-]+$/.test(u.pathname)) return 'claude';
+ }catch{} return null;
 }
+const validChat = url => !!provider(url);
 function canonical(url) {const u = new URL(url); return u.origin + u.pathname;}
 async function inject(tabId) {
-  const file = "content.js";
+  const file = provider(target) === "claude" ? "claude.js" : "content.js";
   // Reload the packaged adapter when working on an unpacked temporary extension.
   const response = await fetch(browser.runtime.getURL(file), {cache: "no-store"});
   if (!response.ok) throw new Error("Не вдалося прочитати адаптер чату.");
@@ -28,7 +33,7 @@ async function cancelJob(id) {
   }
 }
 async function startJob(job) {
-  const tabs = (await browser.tabs.query({url: ["https://gemini.google.com/*"]}))
+  const tabs = (await browser.tabs.query({url: HOSTS}))
     .filter(tab => canonical(tab.url) === target);
   if (tabs.length !== 1) throw new Error("Відкрийте рівно одну вкладку вибраного чату. Перевірте адресу в розширенні.");
   const tab = tabs[0];
@@ -36,10 +41,12 @@ async function startJob(job) {
   active = {id: job.id, tabId: tab.id};
   try {
     await inject(tab.id);
-    const bundle = JSON.parse(atob(job.parts.join("")));
-    if (!Array.isArray(bundle.files) || bundle.files.length<1 || bundle.files.length>2) throw new Error('Invalid media bundle');
+    if (active?.id !== job.id) return;
+    const bundle = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(job.parts.join("")), c => c.charCodeAt(0))));
+    if (bundle.target && bundle.target !== target) throw new Error("Вибраний чат змінився під час запису. Повторіть запит.");
+    if (!Array.isArray(bundle.files) || bundle.files.length>2 || (!bundle.files.length && !bundle.text)) throw new Error('Invalid media bundle');
     const reply = await browser.tabs.sendMessage(tab.id, {
-      type: "solve", id: job.id, files: bundle.files, url: target
+      type: "solve", id: job.id, files: bundle.files, text: bundle.text || "", url: target
     });
     if (active?.id !== job.id) return;
     if (reply.error) throw new Error(reply.error);
@@ -59,7 +66,7 @@ function connect() {
     if (data.type === "ready") {ready = true; message = "Готово. → — почати/надіслати запис; правий Alt+→ — додати скриншот."; send({type: "hello", target});}
     else if (data.type === "diagnose") {
       (async () => {
-        const tabs = (await browser.tabs.query({url: ["https://gemini.google.com/*"]})).filter(t => canonical(t.url) === target);
+        const tabs = (await browser.tabs.query({url: HOSTS})).filter(t => canonical(t.url) === target);
         if (tabs.length !== 1) return {error: "Не знайдено рівно одну вкладку вибраного чату.", matches: tabs.length, target};
         await inject(tabs[0].id);
         return browser.tabs.sendMessage(tabs[0].id, {type: "inspect"});
@@ -94,7 +101,7 @@ browser.runtime.onMessage.addListener(async (data, sender) => {
   if (data.action === "connect") {connect(); return {ok: true};}
   if (data.action === "status") {return {connected: ready, target, message};}
   if (data.action === "select") {
-    if (!validChat(data.url)) return {error: "Спершу відкрийте потрібну розмову на gemini.google.com."};
+    if (!validChat(data.url)) return {error: "Спершу відкрийте потрібну розмову на gemini.google.com або claude.ai/chat/… ."};
     if (active) return {error: "Спершу скасуйте поточний запит."};
     target = canonical(data.url);
     await browser.storage.local.set({target});

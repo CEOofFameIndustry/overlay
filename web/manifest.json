@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
-  "name": "Meet Voice — Gemini",
-  "version": "0.1.0",
-  "description": "Запис звуку аудіовиходу та відповіді з вибраного Gemini-чату.",
+  "name": "Meet Voice — Gemini / Claude",
+  "version": "0.2.0",
+  "description": "Запис звуку, локальний Whisper та відповіді з вибраного Gemini або Claude.",
   "browser_specific_settings": {
     "gecko": {
       "id": "meet-voice@local.invalid",
@@ -12,7 +12,8 @@
   "permissions": [
     "nativeMessaging",
     "storage",
-    "https://gemini.google.com/*"
+    "https://gemini.google.com/*",
+    "https://claude.ai/*"
   ],
   "background": {
     "scripts": [

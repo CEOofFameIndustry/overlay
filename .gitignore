@@ -8,3 +8,4 @@ settings.json
 .shortcuts.lock
 *.wav
 *.png
+.local-whisper/

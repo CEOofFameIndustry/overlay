@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Push-to-record system audio -> selected Gemini Web chat -> protected overlay."""
+"""Push-to-record system audio -> selected Gemini or Claude Web chat -> protected overlay."""
 import base64
 import json
 import os
@@ -11,12 +11,20 @@ import threading
 import time
 import uuid
 import wave
+import re
+
+import transcribe
 
 import desktop_support as dot
 import transport
 
 BASE=Path(__file__).resolve().parent
 MAX_SECONDS=180
+
+def provider(url):
+    if re.fullmatch(r'https://gemini\.google\.com/(?:u/\d+/)?app/[a-zA-Z0-9_-]+',url): return 'gemini'
+    if re.fullmatch(r'https://claude\.ai/chat/[a-zA-Z0-9-]+',url): return 'claude'
+    return None
 
 def current_screen():
     state=transport.state()
@@ -45,7 +53,15 @@ class Host(transport.Host):
     def __init__(self):
         super().__init__()
         self.recording=None
-        self.last_status='Виберіть чат Gemini у розширенні Meet Voice.'
+        self.last_status='Виберіть чат Gemini або Claude у розширенні Meet Voice.'
+
+    def receive(self,data):
+        if isinstance(data,dict) and data.get('type')=='hello':
+            target=str(data.get('target',''))
+            self.target=target if provider(target) else ''
+            self.last_status='Вебчат підключено. → — запис / надіслати; ← — скасувати.' if self.target else 'Виберіть чат Gemini або Claude.'
+            return
+        super().receive(data)
 
     def command(self,command):
         if command=='status':
@@ -56,9 +72,11 @@ class Host(transport.Host):
             return result
         if command in ('toggle','toggle-shot'):
             with self.job_lock:
-                if not self.target.startswith('https://gemini.google.com/'):
-                    return {'error':'Виберіть чат Gemini у розширенні Meet Voice.'}
+                if not provider(self.target):
+                    return {'error':'Виберіть чат Gemini або Claude у розширенні Meet Voice.'}
                 if self.job: return {'error':'Відповідь ще очікується. Спочатку скасуйте запит.'}
+                if provider(self.target)=='claude' and not transcribe.available():
+                    return {'error':'Спочатку встановіть Whisper: python3 setup_whisper.py'}
                 if self.recording:
                     rec=self.recording;self.recording=None
                 else:
@@ -76,7 +94,7 @@ class Host(transport.Host):
         error_path=path.with_suffix('.log')
         with error_path.open('wb') as err:
             proc=subprocess.Popen(['parecord','--device=@DEFAULT_MONITOR@','--client-name=Meet Voice','--stream-name=Meet Voice recording','--rate=16000','--channels=1','--format=s16le','--latency-msec=50','--process-time-msec=20','--file-format=wav',str(path)],stdout=subprocess.DEVNULL,stderr=err)
-        rec={'process':proc,'path':path,'start':time.monotonic(),'shot':shot,'errors':error_path}
+        rec={'process':proc,'path':path,'start':time.monotonic(),'shot':shot,'errors':error_path,'target':self.target}
         timer=threading.Timer(MAX_SECONDS,self.limit_recording,args=(rec,));timer.daemon=True
         rec['timer']=timer;self.recording=rec;timer.start()
         self.last_status='● Запис звуку. → — надіслати; правий Alt+→ — зі скриншотом.'
@@ -89,7 +107,7 @@ class Host(transport.Host):
         self.submit_recording(rec,False)
 
     def submit_recording(self,rec,shot):
-        job={'id':str(uuid.uuid4()),'cancelled':threading.Event(),'reply_event':threading.Event(),'reply':None,'recording':rec,'shot':shot or rec['shot']}
+        job={'id':str(uuid.uuid4()),'cancelled':threading.Event(),'reply_event':threading.Event(),'reply':None,'recording':rec,'shot':shot or rec['shot'],'target':rec.get('target',self.target)}
         with self.job_lock:
             if self.job:
                 self.stop_process(rec);self.cleanup(rec);return
@@ -125,12 +143,20 @@ class Host(transport.Host):
             with wave.open(str(rec['path']),'rb') as audio:
                 seconds=audio.getnframes()/audio.getframerate()
             if seconds<0.5:raise RuntimeError('Запис надто короткий. Натисніть →, дочекайтеся питання й натисніть → повторно.')
-            files=[{'name':'MeetVoice-'+job['id']+'.wav','mime':'audio/wav','data':base64.b64encode(rec['path'].read_bytes()).decode()}]
+            target=job.get('target',self.target)
+            selected_provider=provider(target)
+            files=[];text=''
+            if selected_provider!='claude':
+                files.append({'name':'MeetVoice-'+job['id']+'.wav','mime':'audio/wav','data':base64.b64encode(rec['path'].read_bytes()).decode()})
             dot.hide()
             if job['shot']:
                 png,_=dot.capture(current_screen())
                 files.append({'name':'MeetVoice-'+job['id']+'.png','mime':'image/png','data':base64.b64encode(png).decode()})
-            payload=base64.b64encode(json.dumps({'files':files},separators=(',',':')).encode()).decode()
+            if selected_provider=='claude':
+                self.last_status='Розпізнаю запис локально через Whisper base…'
+                show(self.last_status,duration=245000)
+                text=transcribe.transcribe(rec['path'],job['cancelled'])
+            payload=base64.b64encode(json.dumps({'files':files,'text':text,'target':target},ensure_ascii=False,separators=(',',':')).encode()).decode()
             if len(payload)>28000000:raise RuntimeError('Запис завеликий. Зробіть коротший запис.')
             if job['cancelled'].is_set():return
             self.send({'type':'image-start','id':job['id'],'mime':'application/json'})
@@ -138,17 +164,17 @@ class Host(transport.Host):
                 if job['cancelled'].is_set():return
                 self.send({'type':'image-chunk','id':job['id'],'data':payload[offset:offset+240000]})
             self.send({'type':'image-end','id':job['id']})
-            self.last_status='Запис надіслано. Очікую Gemini…';show(self.last_status,duration=430000)
+            self.last_status='Запит надіслано. Очікую відповідь…';show(self.last_status,duration=430000)
             deadline=time.monotonic()+420
             while not job['reply_event'].wait(.2):
                 if job['cancelled'].is_set() or self.closed.is_set():return
                 if time.monotonic()>deadline:
-                    self.send({'type':'cancel','id':job['id']});raise RuntimeError('Gemini не відповів за 7 хвилин. Перевірте чат і ліміти.')
+                    self.send({'type':'cancel','id':job['id']});raise RuntimeError('Чат не відповів за 7 хвилин. Перевірте чат і ліміти.')
             if job['cancelled'].is_set():return
             reply=job['reply']
             if reply.get('type')=='error':raise RuntimeError(str(reply.get('message','Помилка розширення'))[:400])
             text=reply.get('text','')
-            if not isinstance(text,str) or not text.strip():raise RuntimeError('Gemini повернув порожню відповідь.')
+            if not isinstance(text,str) or not text.strip():raise RuntimeError('Чат повернув порожню відповідь.')
             self.last_status='Відповідь отримано.';show(text.strip())
         except (OSError,ValueError,RuntimeError,wave.Error,subprocess.SubprocessError) as err:
             if not job['cancelled'].is_set():self.notify(str(err))

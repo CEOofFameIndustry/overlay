@@ -39,9 +39,9 @@ class Tests(unittest.TestCase):
         error=Path(directory)/'clip.log';error.touch()
         return {'path':path,'errors':error,'shot':False}
 
-    def roundtrip(self,shot=False,cancelled=False):
+    def roundtrip(self,shot=False,cancelled=False,claude=False):
         with tempfile.TemporaryDirectory() as directory:
-            host=app.Host();rec=self.make_recording(directory)
+            host=app.Host();host.target='https://claude.ai/chat/test' if claude else 'https://gemini.google.com/app/test';rec=self.make_recording(directory)
             job={'id':'test','recording':rec,'shot':shot,'cancelled':threading.Event(),'reply_event':threading.Event(),'reply':None}
             if cancelled:job['cancelled'].set()
             host.job=job;sent=[];parts=[]
@@ -50,10 +50,11 @@ class Tests(unittest.TestCase):
                 if msg['type']=='image-chunk':parts.append(msg['data'])
                 if msg['type']=='image-end':
                     job['reply']={'type':'answer','text':'Чотири.'};job['reply_event'].set()
-            with patch.object(host,'stop_process'),patch.object(host,'send',side_effect=send),patch.object(app.dot,'hide'),patch.object(app.dot,'capture',return_value=(b'png',None)) as capture,patch.object(app,'show') as show,patch.object(app,'current_screen',return_value='HDMI-A-1'):
+            with patch.object(app.transcribe,'transcribe',return_value='Скільки буде два плюс два?') as transcription,patch.object(host,'stop_process'),patch.object(host,'send',side_effect=send),patch.object(app.dot,'hide'),patch.object(app.dot,'capture',return_value=(b'png',None)) as capture,patch.object(app,'show') as show,patch.object(app,'current_screen',return_value='HDMI-A-1'):
                 host.solve(job)
                 if not cancelled:show.assert_called_with('Чотири.')
                 self.assertEqual(capture.call_count,1 if shot and not cancelled else 0)
+                self.assertEqual(transcription.call_count,1 if claude and not cancelled else 0)
             self.assertIsNone(host.job)
             self.assertFalse(rec['path'].exists())
             return json.loads(base64.b64decode(''.join(parts))) if parts else None
@@ -65,6 +66,32 @@ class Tests(unittest.TestCase):
 
     def test_audio_and_screenshot_roundtrip(self):
         self.assertEqual([f['mime'] for f in self.roundtrip(True)['files']],['audio/wav','image/png'])
+
+    def test_claude_receives_transcript_without_wav(self):
+        bundle=self.roundtrip(claude=True)
+        self.assertEqual(bundle['text'],'Скільки буде два плюс два?')
+        self.assertEqual(bundle['files'],[])
+        self.assertEqual(bundle['target'],'https://claude.ai/chat/test')
+
+    def test_claude_receives_transcript_and_png(self):
+        bundle=self.roundtrip(shot=True,claude=True)
+        self.assertEqual([f['mime'] for f in bundle['files']],['image/png'])
+        self.assertTrue(bundle['text'])
+
+    def test_cancelled_claude_does_not_transcribe_or_send(self):
+        self.assertIsNone(self.roundtrip(cancelled=True,claude=True))
+
+    def test_target_snapshot_during_recording(self):
+        host=app.Host();host.target='https://gemini.google.com/app/later'
+        rec={'target':'https://claude.ai/chat/original','shot':False}
+        with patch.object(app.threading,'Thread'):
+            host.submit_recording(rec,True)
+        self.assertEqual(host.job['target'],rec['target'])
+
+    def test_bad_chat_does_not_start_recording(self):
+        host=app.Host();host.target='https://claude.ai.evil.example/chat/test'
+        with patch.object(host,'start_recording') as start:
+            self.assertIn('error',host.command('toggle'));start.assert_not_called()
 
     def test_cancel_does_not_send_audio(self):self.assertIsNone(self.roundtrip(cancelled=True))
 
