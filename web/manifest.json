@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
-  "name": "Meet Voice — Gemini / Claude",
-  "version": "0.2.2",
+  "name": "Voice Meet",
+  "version": "0.2.4",
   "description": "Запис звуку, локальний Whisper та відповіді з вибраного Gemini або Claude.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "meet-voice@local.invalid",
+      "id": "voice-meet@ceooffameindustry.local.invalid",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": [

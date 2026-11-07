@@ -13,7 +13,7 @@ def main():
     missing=[name for name in ['parecord','pactl','grim','qs','firefox','ryoku','ryoku-hub','luac'] if not shutil.which(name)]
     if missing:raise SystemExit('Відсутні залежності: '+', '.join(missing))
     host=Path.home()/'.mozilla/native-messaging-hosts/ua.meet_voice.json'
-    manifest={'name':'ua.meet_voice','description':'Meet Voice web chat bridge','path':str(BASE/'meet_voice.py'),'type':'stdio','allowed_extensions':['meet-voice@local.invalid']}
+    manifest={'name':'ua.meet_voice','description':'Meet Voice web chat bridge','path':str(BASE/'meet_voice.py'),'type':'stdio','allowed_extensions':[json.loads((BASE/'web/manifest.json').read_text())['browser_specific_settings']['gecko']['id'], 'meet-voice@local.invalid']}
     if host.exists() and json.loads(host.read_text()).get('path')!=manifest['path']:raise SystemExit('Інша копія Meet Voice вже зареєстрована: '+str(host))
     host.parent.mkdir(parents=True,exist_ok=True);host.write_text(json.dumps(manifest,indent=2)+'\n')
     (BASE/'meet_voice.py').chmod(0o755)

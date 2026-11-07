@@ -5,7 +5,7 @@ import json
 from zipfile import ZipFile, ZIP_DEFLATED
 BASE=Path(__file__).resolve().parent
 manifest=json.loads((BASE/'web/manifest.json').read_text())
-output=BASE.parent/('meet-voice-'+manifest['version']+'-unsigned.zip')
+output=BASE.parent/('voice-meet-'+manifest['version']+'-unsigned.zip')
 with ZipFile(output,'w',ZIP_DEFLATED) as archive:
     for p in sorted((BASE/'web').iterdir()):
         if p.is_file() and p.suffix in {'.js','.json','.html'}:

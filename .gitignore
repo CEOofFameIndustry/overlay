@@ -9,3 +9,5 @@ settings.json
 *.wav
 *.png
 .local-whisper/
+
+*.xpi

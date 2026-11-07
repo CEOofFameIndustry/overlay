@@ -49,7 +49,7 @@ hl.layer_rule({
 2. У папці програми запустіть `python3 install.py` **без sudo**. Воно реєструє окремий Firefox native host `ua.meet_voice` і перемикач клавіш. Початково → вільна.
 3. Firefox → `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** → файл `web/manifest.json` із цієї папки.
 4. Відкрийте підготовлений чат Gemini або Claude на столі 9, виберіть потрібну модель і задайте свої правила для аудіозапитань.
-5. У панелі саме **Meet Voice — Gemini / Claude** натисніть **Використовувати цей чат**. Має бути лише одна вкладка цього чату. Залиште її вибраною в окремому вікні Firefox на столі 9.
+5. У панелі саме **Voice Meet** натисніть **Використовувати цей чат**. Має бути лише одна вкладка цього чату. Залиште її вибраною в окремому вікні Firefox на столі 9.
 6. Увімкніть клавіші через Super+Alt+V.
 
 Після перезапуску Firefox тимчасове розширення потрібно завантажити знову. Повторна реєстрація native host не потрібна. Застосунок має власне розширення, канал і шар; Chat Dot налаштовується окремо.
@@ -112,6 +112,13 @@ node tests/test_background.cjs
 python3 package_extension.py
 ```
 
-На https://addons.mozilla.org/developers/addon/submit/distribution оберіть **On your own / self-distribution**, завантажте створений `meet-voice-…-unsigned.zip` та завершіть підписання. Це не публікує розширення в каталозі AMO. Політика обробки даних: `PRIVACY.md`. Пакет містить тільки розширення, без Whisper, аудіо, скриншотів і особистого URL чату.
+На https://addons.mozilla.org/developers/addon/submit/distribution оберіть **On your own / self-distribution**, завантажте створений `voice-meet-…-unsigned.zip` та завершіть підписання. Це не публікує розширення в каталозі AMO. Політика обробки даних: `PRIVACY.md`. Пакет містить тільки розширення, без Whisper, аудіо, скриншотів і особистого URL чату.
 
 Після отримання підписаного `.xpi` у Firefox відкрийте `about:addons` → шестерня → **Install Add-on From File / Встановити додаток із файлу** та виберіть XPI. Якщо тимчасова копія заважає встановленню з тим самим ID, спочатку приберіть її в `about:debugging`; після встановлення виберіть чат знову. Постійна версія зберігається після перезапуску Firefox. Native host і Whisper повторно встановлювати не потрібно. Зміни в локальній папці `web/` не змінюють вже встановлений XPI: для оновлення потрібна нова версія пакета та новий підпис.
+
+
+## Підписане розширення
+
+Готові підписані Mozilla XPI доступні в [GitHub Releases](https://github.com/CEOofFameIndustry/overlay/releases). Встановіть файл `voice-meet-0.2.4.xpi` через Firefox → `about:addons` → шестерня → «Встановити додаток із файлу». Локальна програма з цього репозиторію також потрібна.
+
+Починаючи з Voice Meet 0.2.4 використовується новий ID `voice-meet@ceooffameindustry.local.invalid`. На вже встановленій старій копії повторно виконайте `python3 install.py` з тієї самої папки, щоб оновити дозволені ID native host. Вимкніть старе розширення Meet Voice та виберіть чат у новому Voice Meet заново.
