@@ -29,6 +29,16 @@
     while (true) {check(job); const value = fn(); if (value) return value;
       if (Date.now() >= deadline) throw new Error(message); await changed();}
   }
+  const composer = () => {
+    const el = editor();
+    const form = el?.closest('form');
+    if (form) return form;
+    // The attachment strip is a sibling of several nested editor wrappers.
+    for (let node=el?.parentElement, depth=0; node && depth<10; node=node.parentElement,depth++) {
+      if ([...node.querySelectorAll('button')].some(b => /add files|attach|send message|додати файли|надіслати/i.test(label(b)))) return node;
+    }
+    return document.body;
+  };
   function fileInput() {return [...document.querySelectorAll('input[type="file"]')].find(n => !n.accept || /image|\.png|\*/i.test(n.accept));}
   async function solve(data) {
     if (state.current) throw new Error('Попередній запит ще виконується.');
@@ -54,12 +64,16 @@
         const item = data.files[0];
         const bytes = Uint8Array.from(atob(item.data), c => c.charCodeAt(0));
         const transfer = new DataTransfer(); transfer.items.add(new File([bytes], item.name, {type:item.mime}));
-        const form = inputEditor.closest('form') || inputEditor.parentElement?.parentElement || document.body;
-        const oldImages = new Set([...form.querySelectorAll('img')].map(n => n.src));
+        const oldImages = new Set([...composer().querySelectorAll('img')].map(n => n.src));
         upload.files = transfer.files; upload.dispatchEvent(new Event('change', {bubbles:true}));
         phase(job, 'Скриншот передано Claude; очікую вкладення.');
-        await until(job, () => [...form.querySelectorAll('img')].some(n => !oldImages.has(n.src) && n.complete && n.naturalWidth > 0) ||
-          [...form.querySelectorAll('[aria-label],[title]')].some(n => label(n).includes(item.name)) || form.textContent.includes(item.name),
+        await until(job, () => {
+          // Uploading can replace the entire composer. Never poll a detached form.
+          const live = composer();
+          return [...live.querySelectorAll('img')].some(n => !oldImages.has(n.src) && n.complete && n.naturalWidth > 0) ||
+            buttons().some(n => label(n).includes(item.name)) ||
+            [...document.querySelectorAll('[aria-label],[title]')].some(n => visible(n) && label(n).includes(item.name)) || live.textContent.includes(item.name);
+        },
           30000, 'Claude не підтвердив прикріплення скриншота. Запит не надіслано.');
       }
       check(job);
@@ -89,7 +103,7 @@
       }
       await until(job, () => (editor()?.value || editor()?.innerText || '').replace(/\s+/g,' ').trim() === data.text.replace(/\s+/g,' ').trim(), 5000, 'Claude не підтвердив текст у полі повідомлення.');
       const send = await until(job, () => {
-        const b = document.querySelector('[data-testid="send-button"]') || buttons().find(n => /^(send\b|надіслати|отправить)/i.test(label(n).trim()));
+        const b = [...composer().querySelectorAll('button')].find(n => visible(n) && (n.matches('[data-testid="send-button"]') || /^(send\b|надіслати|отправить)/i.test(label(n).trim()))) || buttons().find(n => visible(n) && /^(send\b|надіслати|отправить)/i.test(label(n).trim()));
         return b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' ? b : null;
       }, 30000, 'Кнопка надсилання Claude недоступна. Перевірте вкладення або ліміти.');
       check(job); send.click(); phase(job, 'Текст надіслано. Очікую Claude.');
@@ -109,7 +123,7 @@
     } finally {if (state.current === job) state.current = null;}
   }
   window.__meetVoiceClaudeHandler = data => {
-    if (data.type === 'inspect') return Promise.resolve({provider:'claude',  visibility:document.visibilityState, editor:!!editor(), editorDetails:editor()?{tag:editor().tagName,role:editor().getAttribute('role'),classes:editor().className,editable:editor().getAttribute('contenteditable'),html:editor().innerHTML.slice(0,500)}:null, fileInputs:document.querySelectorAll('input[type="file"]').length, responses:responses().length, lastResponse:responses().length ? responseText(responses().at(-1)).slice(0,500) : '', buttons:buttons().map(label).slice(-30), url:location.origin+location.pathname});
+    if (data.type === 'inspect') return Promise.resolve({provider:'claude',  visibility:document.visibilityState, editor:!!editor(), editorDetails:editor()?{tag:editor().tagName,role:editor().getAttribute('role'),classes:editor().className,editable:editor().getAttribute('contenteditable'),html:editor().innerHTML.slice(0,500)}:null, composerControls:[...composer().querySelectorAll('button')].map(n=>({label:label(n).slice(0,100),disabled:n.disabled,ariaDisabled:n.getAttribute('aria-disabled')})), composerImages:[...composer().querySelectorAll('img')].map(n=>({alt:n.alt,complete:n.complete,width:n.naturalWidth})), fileInputs:document.querySelectorAll('input[type="file"]').length, responses:responses().length, lastResponse:responses().length ? responseText(responses().at(-1)).slice(0,500) : '', buttons:buttons().map(label).slice(-30), url:location.origin+location.pathname});
     if (data.type === 'cancel' && state.current?.id === data.id) {state.current.cancelled=true; const b=stop(); if(b) b.click(); return Promise.resolve({ok:true});}
     if (data.type === 'solve') return solve(data).catch(e => ({error:String(e.message).slice(0,400)}));
   };

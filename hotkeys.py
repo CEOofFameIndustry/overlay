@@ -14,7 +14,7 @@ PREFIX='/usr/bin/python3 '+shlex.quote(str(BASE/'meet_voice.py'))
 TOGGLE='/usr/bin/python3 '+shlex.quote(str(BASE/'hotkeys.py'))+' toggle'
 CHORD='SUPER + ALT + V'
 BINDINGS=[{'keys':'Right','action':'exec','value':PREFIX+' toggle','release':False},
-          {'keys':'ALT + Right','action':'exec','value':PREFIX+' toggle-shot','release':False},
+          {'keys':'Alt_R + Right','action':'exec','value':PREFIX+' toggle-shot','release':False},
           {'keys':'MOD5 + Right','action':'exec','value':PREFIX+' toggle-shot','release':False},
           {'keys':'Left','action':'exec','value':PREFIX+' cancel','release':True}]
 

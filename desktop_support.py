@@ -33,6 +33,10 @@ def runtime():
     RUNTIME.chmod(0o700)
 
 def capture(screen):
+    # IPC returning does not mean the compositor has removed its layer yet.
+    # Allow the overlay process to exit and its closing animation to finish.
+    hide()
+    time.sleep(0.75)
     from PIL import Image
     raw = run(["grim", "-o", screen, "-t", "png", "-"]).stdout
     with Image.open(io.BytesIO(raw)) as image:
